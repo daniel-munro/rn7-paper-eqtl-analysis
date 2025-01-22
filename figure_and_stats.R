@@ -1,7 +1,7 @@
 library(tidyverse)
 library(patchwork)
 
-eqtls <- read_tsv("data/eqtl_moved.txt.gz", col_types = "ccdcll") %>%
+eqtls <- read_tsv("data/eqtl_moved.txt.gz", col_types = "ccdcll") |>
     mutate(moved = esnp_move | tss_move)
 
 reloc <- read_tsv("data/relocated.txt", col_types = "ccdcicicllcicic")
@@ -49,120 +49,6 @@ t_to_c_ex <- t_to_c |>
 ## Figure ##
 ############
 
-# Stacked bars:
-
-n_trans_egenes <- eqtls |>
-    filter(rn6_type == "trans") |>
-    with(n_distinct(gene_id))
-eqtls |>
-    filter(rn6_type == "trans") |>
-    left_join(select(reloc, variant_id, gene_id, rn7_type),
-              by = c("variant_id", "gene_id")) |>
-    mutate(
-        gene_id = fct_infreq(gene_id),
-        eSNPs = case_when(
-            moved & rn6_type == "trans" & rn7_type == "cis" ~ "Relocated, resulting in cis-eQTL",
-            moved ~ "Relocated, still trans-eQTL",
-            !moved ~ "Did not relocate"
-        ) |>
-            fct_relevel("Relocated, resulting in cis-eQTL", "Relocated, still trans-eQTL")
-    ) |>
-    ggplot(aes(x = gene_id, fill = eSNPs)) +
-    geom_bar() +
-    scale_y_continuous(expand = c(0.01, 0)) +
-    scale_fill_manual(values = c("red", "black", "gray")) +
-    theme_bw() +
-    theme(
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid = element_blank(),
-        legend.position = c(0.65, 0.75),
-    ) +
-    xlab(str_glue("{n_trans_egenes} genes with trans-eQTLs when using Rnor6.0")) +
-    ylab("trans-eQTL SNPs (Rnor6.0)") +
-    labs(fill = "SNP and/or TSS:")
-
-ggsave("trans_to_cis_plot/eQTL_figure.old.png", width = 5, height = 4)
-
-## Variant: order x-axis by top p-value
-
-n_trans_egenes <- eqtls |>
-    filter(rn6_type == "trans") |>
-    with(n_distinct(gene_id))
-eqtls |>
-    filter(rn6_type == "trans") |>
-    left_join(select(reloc, variant_id, gene_id, rn7_type),
-              by = c("variant_id", "gene_id")) |>
-    mutate(
-        # gene_id = fct_infreq(gene_id),
-        gene_id = fct_reorder(gene_id, pval, .fun = min),
-        eSNPs = case_when(
-            moved & rn6_type == "trans" & rn7_type == "cis" ~ "Relocated, resulting in cis-eQTL",
-            moved ~ "Relocated, still trans-eQTL",
-            !moved ~ "Did not relocate"
-        ) |>
-            fct_relevel("Relocated, resulting in cis-eQTL", "Relocated, still trans-eQTL")
-    ) |>
-    ggplot(aes(x = gene_id, fill = eSNPs)) +
-    geom_bar(color = "black", lwd = 0.01) +
-    scale_y_continuous(expand = c(0.01, 0)) +
-    scale_fill_manual(values = c("red", "black", "gray")) +
-    theme_bw() +
-    theme(
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid = element_blank(),
-        legend.position = c(0.75, 0.75),
-    ) +
-    xlab(str_glue("{n_trans_egenes} genes with Rnor6.0 trans-eQTLs, ordered by ascending minimum P-value")) +
-    ylab("trans-eQTL SNPs (Rnor6.0)") +
-    labs(fill = "SNP and/or TSS:")
-
-ggsave("trans_to_cis_plot/eQTL_figure.old_interm_black.png", width = 6, height = 3)
-
-## Variant:
-## - order x-axis by top p-value
-## - separate color for intermediate in rn7
-
-n_trans_egenes <- eqtls |>
-    filter(rn6_type == "trans") |>
-    with(n_distinct(gene_id))
-eqtls |>
-    filter(rn6_type == "trans") |>
-    left_join(select(reloc, variant_id, gene_id, rn7_type),
-              by = c("variant_id", "gene_id")) |>
-    mutate(
-        # gene_id = fct_infreq(gene_id),
-        gene_id = fct_reorder(gene_id, pval, .fun = min),
-        eSNPs = case_when(
-            moved & rn6_type == "trans" & rn7_type == "cis" ~ "Relocated, resulting in cis-eQTL",
-            moved & rn6_type == "trans" & rn7_type == "intermediate" ~ "Relocated, new TSS distance 1-5 Mb",
-            moved & rn6_type == "trans" & rn7_type == "trans" ~ "Relocated, still trans-eQTL",
-            !moved ~ "Did not relocate"
-        ) |>
-            fct_relevel("Relocated, resulting in cis-eQTL",
-                        "Relocated, new TSS distance 1-5 Mb",
-                        "Relocated, still trans-eQTL",
-                        "Did not relocate")
-    ) |>
-    ggplot(aes(x = gene_id, fill = eSNPs)) +
-    geom_bar(color = "black", lwd = 0.01) +
-    scale_y_continuous(expand = c(0.01, 0)) +
-    scale_fill_manual(values = c("red", "#dd8888", "black", "gray")) +
-    theme_bw() +
-    theme(
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid = element_blank(),
-        legend.position = c(0.75, 0.7),
-    ) +
-    xlab(str_glue("{n_trans_egenes} genes with Rnor6.0 trans-eQTLs, ordered by ascending minimum P-value")) +
-    ylab("trans-eQTL SNPs (Rnor6.0)") +
-    labs(fill = "SNP and/or TSS:")
-
-ggsave("trans_to_cis_plot/eQTL_figure.old_no_pval_tiles.png", width = 6, height = 3)
-
-## Variant:
 ## - order x-axis by top p-value
 ## - separate color for intermediate in rn7
 ## - Boxes below bars, colored by p-value
@@ -173,9 +59,9 @@ n_trans_egenes <- eqtls |>
 p1 <- eqtls |>
     filter(rn6_type == "trans") |>
     left_join(select(reloc, variant_id, gene_id, rn7_type),
-              by = c("variant_id", "gene_id")) |>
+              by = c("variant_id", "gene_id"),
+              relationship = "one-to-one") |>
     mutate(
-        # gene_id = fct_infreq(gene_id),
         gene_id = fct_reorder(gene_id, pval, .fun = min),
         eSNPs = case_when(
             moved & rn6_type == "trans" & rn7_type == "cis" ~ "Relocated, resulting in cis-eQTL",
@@ -190,7 +76,6 @@ p1 <- eqtls |>
     ) |>
     ggplot(aes(x = gene_id, fill = eSNPs)) +
     geom_bar(color = "black", lwd = 0.1) +
-    # geom_bar() +
     scale_y_continuous(expand = c(0.01, 0)) +
     scale_fill_manual(values = c("red", "#dd8888", "black", "gray")) +
     theme_bw() +
@@ -198,17 +83,18 @@ p1 <- eqtls |>
         axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.grid = element_blank(),
-        legend.position = c(0.59, 0.74),
+        legend.position = "inside",
+        legend.position.inside = c(0.59, 0.74),
         legend.justification = c(0, 0),
         legend.key.size = unit(11, "pt"),
     ) +
     ylab("trans-eQTL SNPs (Rnor6.0)") +
     xlab(NULL) +
     labs(fill = "SNP and/or TSS:")
+
 p2 <- eqtls |>
     filter(rn6_type == "trans") |>
-    group_by(gene_id) |>
-    summarise(min_p = min(pval), .groups = "drop") |>
+    summarise(min_p = min(pval), .by = gene_id) |>
     mutate(gene_id = fct_reorder(gene_id, min_p, .fun = min)) |>
     ggplot(aes(x = gene_id, y = 0, fill = -log10(min_p))) +
     geom_tile() +
@@ -224,7 +110,6 @@ p2 <- eqtls |>
         legend.justification = c(0, 1),
         legend.key.width = unit(11, "pt"),
         legend.key.height = unit(12, "pt"),
-        # legend.direction = "horizontal",
     ) +
     xlab(str_glue("{n_trans_egenes} genes with Rnor6.0 trans-eQTLs")) +
     ylab(NULL) +
@@ -232,28 +117,5 @@ p2 <- eqtls |>
 
 p1 / plot_spacer() / p2 + plot_layout(heights = c(40, -2.5, 1))
 
-# ggsave("trans_to_cis_plot/eQTL_figure.png", width = 7, height = 4.5, dpi = 600)
-ggsave("trans_to_cis_plot/eQTL_figure.pdf", width = 7, height = 4.5)
-
-#########
-## Old ##
-#########
-# p-value vs. eGenes points:
-
-eqtls |>
-    filter(rn6_type == "trans") |>
-    left_join(select(reloc, variant_id, gene_id, rn7_type),
-              by = c("variant_id", "gene_id")) |>
-    mutate(log10pval = -log10(pval),
-           eSNPs = case_when(
-               moved & rn6_type == "trans" & rn7_type == "cis" ~ "trans->cis",
-               moved & rn6_type == "trans" & rn7_type == "trans" ~ "trans->trans",
-               !moved ~ "unchanged"
-           )) |>
-    ggplot(aes(x = gene_id, y = log10pval, color = eSNPs)) +
-    geom_point(size = 0.5) +
-    scale_color_manual(values = c("red", "black", "gray")) +
-    theme_minimal() +
-    theme(axis.text.x = element_blank()) +
-    xlab("eGenes (for all trans-eQTLs with p-value < 1e-8)") +
-    ylab(expression(-log[10]*(P)))
+# ggsave("trans_to_cis_plot.png", width = 7, height = 4.5, dpi = 600)
+ggsave("trans_to_cis_plot.pdf", width = 7, height = 4.5)

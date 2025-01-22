@@ -32,8 +32,6 @@ new_pos <- function(pos, i_seg, segments) {
 segments <- pafr::read_paf("data/rn6_mRatBN72_chr_translocation_lt50bp.paf.gz") |>
     as_tibble() |>
     filter(mapq >= 60)
-    ## Currently all are mapq == 60:
-    # arrange(desc(mapq)) # So first GRanges match is highest quality
 
 genes <- read_tsv("data/genes.txt", col_types = "ccc---i-----") |>
     select(gene_id,
@@ -46,16 +44,21 @@ eqtls1 <- read_tsv("data/NQCT.trans_qtl_pairs.txt.gz",
     filter(pval < 1e-8)
 eqtls2 <- eqtls1 |>
     rename(gene_id = phenotype_id) |>
-    separate(variant_id, c("rn6_esnp_chrom", "rn6_esnp_pos"), sep = ":", convert = TRUE,
-             remove = FALSE) |>
-    mutate(rn6_esnp_chrom = str_replace(rn6_esnp_chrom, "chr", "")) |>
+    separate_wider_delim(variant_id, ":", names = c("rn6_esnp_chrom", "rn6_esnp_pos"),
+                         cols_remove = FALSE) |>
+    mutate(
+        rn6_esnp_chrom = str_replace(rn6_esnp_chrom, "chr", ""),
+        rn6_esnp_pos = as.integer(rn6_esnp_pos)
+    ) |>
     relocate(rn6_esnp_chrom, rn6_esnp_pos, .after = pval) |>
-    left_join(genes, by = "gene_id") |>
-    mutate(rn6_type = case_when(
-        rn6_esnp_chrom == rn6_tss_chrom & abs(rn6_esnp_pos - rn6_tss_pos) < 1e6 ~ "cis",
-        rn6_esnp_chrom == rn6_tss_chrom & abs(rn6_esnp_pos - rn6_tss_pos) < 5e6 ~ "intermediate",
-        TRUE ~ "trans"
-    ))
+    left_join(genes, by = "gene_id", relationship = "many-to-one") |>
+    mutate(
+        rn6_type = case_when(
+            rn6_esnp_chrom == rn6_tss_chrom & abs(rn6_esnp_pos - rn6_tss_pos) < 1e6 ~ "cis",
+            rn6_esnp_chrom == rn6_tss_chrom & abs(rn6_esnp_pos - rn6_tss_pos) < 5e6 ~ "intermediate",
+            TRUE ~ "trans"
+        )
+    )
 eqtls <- eqtls2 |>
     mutate(esnp_move = moved(rn6_esnp_chrom, rn6_esnp_pos, segments),
            tss_move = moved(rn6_tss_chrom, rn6_tss_pos, segments),
@@ -64,19 +67,25 @@ eqtls <- eqtls2 |>
 reloc <- eqtls |>
     filter(moved) |>
     select(-moved) |>
-    mutate(i_seg_esnp = i_seg_overlap(rn6_esnp_chrom, rn6_esnp_pos, segments),
-           i_seg_tss = i_seg_overlap(rn6_tss_chrom, rn6_tss_pos, segments)) |>
+    mutate(
+        i_seg_esnp = i_seg_overlap(rn6_esnp_chrom, rn6_esnp_pos, segments),
+        i_seg_tss = i_seg_overlap(rn6_tss_chrom, rn6_tss_pos, segments)
+    ) |>
     rowwise() |>
-    mutate(rn7_esnp_chrom = if (esnp_move) segments$qname[i_seg_esnp] else rn6_esnp_chrom,
-           rn7_esnp_pos = if (esnp_move) new_pos(rn6_esnp_pos, i_seg_esnp, segments) else rn6_esnp_pos,
-           rn7_tss_chrom = if (tss_move) segments$qname[i_seg_tss] else rn6_tss_chrom,
-           rn7_tss_pos = if (tss_move) new_pos(rn6_tss_pos, i_seg_tss, segments) else rn6_tss_pos) |>
+    mutate(
+        rn7_esnp_chrom = if (esnp_move) segments$qname[i_seg_esnp] else rn6_esnp_chrom,
+        rn7_esnp_pos = if (esnp_move) new_pos(rn6_esnp_pos, i_seg_esnp, segments) else rn6_esnp_pos,
+        rn7_tss_chrom = if (tss_move) segments$qname[i_seg_tss] else rn6_tss_chrom,
+        rn7_tss_pos = if (tss_move) new_pos(rn6_tss_pos, i_seg_tss, segments) else rn6_tss_pos
+    ) |>
     ungroup() |>
-    mutate(rn7_type = case_when(
-        rn7_esnp_chrom == rn7_tss_chrom & abs(rn7_esnp_pos - rn7_tss_pos) < 1e6 ~ "cis",
-        rn7_esnp_chrom == rn7_tss_chrom & abs(rn7_esnp_pos - rn7_tss_pos) < 5e6 ~ "intermediate",
-        TRUE ~ "trans"
-    ))
+    mutate(
+        rn7_type = case_when(
+            rn7_esnp_chrom == rn7_tss_chrom & abs(rn7_esnp_pos - rn7_tss_pos) < 1e6 ~ "cis",
+            rn7_esnp_chrom == rn7_tss_chrom & abs(rn7_esnp_pos - rn7_tss_pos) < 5e6 ~ "intermediate",
+            TRUE ~ "trans"
+        )
+    )
 
 eqtls |>
     select(-(rn6_esnp_chrom:rn6_tss_pos), -moved) |>
@@ -107,10 +116,10 @@ seg_c_t <- segments |>
 
 seqs <- seg_c_t |>
     mutate(tname = str_c("chr", tname)) |>
-    with(getSeq(Rnorvegicus, tname, tstart, tend)) %>%
+    with(getSeq(Rnorvegicus, tname, tstart, tend)) |>
     setNames(with(seg_c_t, str_glue("chr{tname}:{tstart}-{tend}")))
 
-writeXStringSet(seqs, "cis_to_trans_5Mb.fa")
+writeXStringSet(seqs, "data/cis_to_trans_5Mb.fa")
 
 # Subset to TSS distance < 1Mb instead of 5Mb:
 
@@ -125,7 +134,7 @@ seg_c_t_1mb <- segments |>
 
 seqs_1mb <- seg_c_t_1mb |>
     mutate(tname = str_c("chr", tname)) |>
-    with(getSeq(Rnorvegicus, tname, tstart, tend)) %>%
+    with(getSeq(Rnorvegicus, tname, tstart, tend)) |>
     setNames(with(seg_c_t_1mb, str_glue("chr{tname}:{tstart}-{tend}")))
 
-writeXStringSet(seqs_1mb, "cis_to_trans_1Mb.fa")
+writeXStringSet(seqs_1mb, "data/cis_to_trans_1Mb.fa")

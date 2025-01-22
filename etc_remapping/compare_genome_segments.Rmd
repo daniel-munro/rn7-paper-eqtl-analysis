@@ -11,127 +11,130 @@ library(tidyverse)
 library(patchwork)
 
 overlap <- function(chrom, start, end, regions) {
-  gr1 <- GRanges(chrom, IRanges(start, end))
-  gr2 <- with(regions, GRanges(chrom, IRanges(start, end)))
-  countOverlaps(gr1, gr2) > 0
+    gr1 <- GRanges(chrom, IRanges(start, end))
+    gr2 <- with(regions, GRanges(chrom, IRanges(start, end)))
+    countOverlaps(gr1, gr2) > 0
 }
 
 chrs <- c(1:20, "X", "Y")
-d_median <- read_tsv("data/mapped_read_counts.txt", col_types = "ccdd")
+d_median <- read_tsv("../data/remapping/mapped_read_counts.txt", col_types = "ccdd")
 
-seg <- pafr::read_paf("data/rn6_mRatBN72_chr_translocation_lt50bp.paf.gz")
+seg <- pafr::read_paf("../data/rn6_mRatBN72_chr_translocation_lt50bp.paf.gz")
 
-chrom_len_rn6 <- seg %>%
-  distinct(tname, tlen) %>%
-  rename(chr_rn6 = tname,
-         len_rn6 = tlen)
-chrom_len_rn7 <- seg %>%
-  filter(qname %in% chrs) %>%
-  distinct(qname, qlen) %>%
-  rename(chr_rn7 = qname,
-         len_rn7 = qlen)
+chrom_len_rn6 <- seg |>
+    distinct(tname, tlen) |>
+    rename(chr_rn6 = tname,
+           len_rn6 = tlen)
+chrom_len_rn7 <- seg |>
+    filter(qname %in% chrs) |>
+    distinct(qname, qlen) |>
+    rename(chr_rn7 = qname,
+           len_rn7 = qlen)
 
-names_rn6 <- read_tsv("data/GCF_000001895.5_Rnor_6.0_assembly_report.txt",
+names_rn6 <- read_tsv("../data/remapping/GCF_000001895.5_Rnor_6.0_assembly_report.txt",
                       comment = "#",
                       col_names = c("chrom", "chr"),
-                      col_types = "c-----c---") %>%
-  mutate(chrom = str_replace(chrom, "chr", "")) %>%
-  filter(chrom %in% chrs)
-names_rn7 <- read_tsv("data/GCF_015227675.2_mRatBN7.2_assembly_report.txt",
+                      col_types = "c-----c---") |>
+    mutate(chrom = str_replace(chrom, "chr", "")) |>
+    filter(chrom %in% chrs)
+names_rn7 <- read_tsv("../data/remapping/GCF_015227675.2_mRatBN7.2_assembly_report.txt",
                       comment = "#",
                       col_names = c("chrom", "chr"),
-                      col_types = "c-----c---") %>%
-  mutate(chrom = str_replace(chrom, "chr", "")) %>%
-  filter(chrom %in% chrs)
+                      col_types = "c-----c---") |>
+    mutate(chrom = str_replace(chrom, "chr", "")) |>
+    filter(chrom %in% chrs)
 
-exons_rn6 <- read_tsv("data/exons_rn6.txt.gz", col_types = "cii",
-                      col_names = c("chr", "start", "end")) %>%
-  left_join(names_rn6, by = "chr") %>%
-  filter(!is.na(chrom))
-exons_rn7 <- read_tsv("data/exons_rn7.txt.gz", col_types = "cii",
-                      col_names = c("chr", "start", "end")) %>%
-  left_join(names_rn7, by = "chr") %>%
-  filter(!is.na(chrom))
+exons_rn6 <- read_tsv("../data/remapping/exons_rn6.txt.gz", col_types = "cii",
+                      col_names = c("chr", "start", "end")) |>
+    left_join(names_rn6, by = "chr", relationship = "many-to-one") |>
+    filter(!is.na(chrom))
+exons_rn7 <- read_tsv("../data/remapping/exons_rn7.txt.gz", col_types = "cii",
+                      col_names = c("chr", "start", "end")) |>
+    left_join(names_rn7, by = "chr", relationship = "many-to-one") |>
+    filter(!is.na(chrom))
 
-exons_len_rn6 <- exons_rn6 %>%
-  rename(chr_rn6 = chrom) %>%
-  group_by(chr_rn6) %>%
-  summarise(exons_len_rn6 = sum(abs(end - start) + 1))
-exons_len_rn7 <- exons_rn7 %>%
-  rename(chr_rn7 = chrom) %>%
-  group_by(chr_rn7) %>%
-  summarise(exons_len_rn7 = sum(abs(end - start) + 1))
+exons_len_rn6 <- exons_rn6 |>
+    rename(chr_rn6 = chrom) |>
+    summarise(exons_len_rn6 = sum(abs(end - start) + 1), .by = chr_rn6)
+exons_len_rn7 <- exons_rn7 |>
+    rename(chr_rn7 = chrom) |>
+    summarise(exons_len_rn7 = sum(abs(end - start) + 1), .by = chr_rn7)
 
-seg_total <- seg %>%
-  mutate(in_exon_rn6 = overlap(tname, tstart, tend, exons_rn6),
-         in_exon_rn7 = overlap(qname, qstart, qend, exons_rn7)) %>%
-  rename(chr_rn6 = tname,
-         chr_rn7 = qname) %>%
-  filter(chr_rn7 %in% chrs) %>%
-  group_by(chr_rn6, chr_rn7) %>%
-  summarise(bases_remapped = sum(alen),
-            exon_bases_remapped = sum(alen[in_exon_rn6 & in_exon_rn7]),
-            .groups = "drop")
+seg_total <- seg |>
+    mutate(in_exon_rn6 = overlap(tname, tstart, tend, exons_rn6),
+           in_exon_rn7 = overlap(qname, qstart, qend, exons_rn7)) |>
+    rename(chr_rn6 = tname,
+           chr_rn7 = qname) |>
+    filter(chr_rn7 %in% chrs) |>
+    summarise(bases_remapped = sum(alen),
+              exon_bases_remapped = sum(alen[in_exon_rn6 & in_exon_rn7]),
+              .by = c(chr_rn6, chr_rn7))
 
-comp <- seg_total %>%
-  left_join(d_median, by = c("chr_rn6", "chr_rn7")) %>%
-  left_join(chrom_len_rn6, by = "chr_rn6") %>%
-  left_join(chrom_len_rn7, by = "chr_rn7") %>%
-  left_join(exons_len_rn6, by = "chr_rn6") %>%
-  left_join(exons_len_rn7, by = "chr_rn7") %>%
-  mutate(norm_genome_remap = (bases_remapped * 1e12) / (len_rn6 * len_rn7),
-         norm_exon_remap = (exon_bases_remapped * 1e12) / (exons_len_rn6 * exons_len_rn7),
-         norm_reads_remap = (median_n * 1e12) / (exons_len_rn6 * exons_len_rn7),
-         chr_rn6 = factor(chr_rn6, levels = chrs),
-         chr_rn7 = factor(chr_rn7, levels = chrs))
+comp <- seg_total |>
+    left_join(d_median, by = c("chr_rn6", "chr_rn7"), relationship = "one-to-one") |>
+    left_join(chrom_len_rn6, by = "chr_rn6", relationship = "many-to-one") |>
+    left_join(chrom_len_rn7, by = "chr_rn7", relationship = "many-to-one") |>
+    left_join(exons_len_rn6, by = "chr_rn6", relationship = "many-to-one") |>
+    left_join(exons_len_rn7, by = "chr_rn7", relationship = "many-to-one") |>
+    mutate(
+        norm_genome_remap = (bases_remapped * 1e12) / (len_rn6 * len_rn7),
+        norm_exon_remap = (exon_bases_remapped * 1e12) / (exons_len_rn6 * exons_len_rn7),
+        norm_reads_remap = (median_n * 1e12) / (exons_len_rn6 * exons_len_rn7),
+        chr_rn6 = factor(chr_rn6, levels = chrs),
+        chr_rn7 = factor(chr_rn7, levels = chrs)
+    )
 ```
 
 ```{r}
 cor_remap <- with(comp, cor(bases_remapped, median_n, method = "spearman"))
-comp %>%
-  ggplot(aes(x = bases_remapped, y = median_n)) +
-  geom_point(size = 1) +
-  scale_x_log10() +
-  scale_y_log10() +
-  ggtitle(str_glue("Spearman rho = {signif(cor_remap, 3)}"))
+comp |>
+    ggplot(aes(x = bases_remapped, y = median_n)) +
+    geom_point(size = 1) +
+    scale_x_log10() +
+    scale_y_log10() +
+    ggtitle(str_glue("Spearman rho = {signif(cor_remap, 3)}"))
 ```
 
 There's a correlation, but it could be due to larger chromosomes having more relocations by chance. Normalizing bases remapped by the product of the lengths of the two involved chromosomes, and median reads remapped by the product of length of exome on the two chromosomes:
 
 ```{r}
 cor_remap2 <- with(comp, cor(norm_genome_remap, norm_reads_remap, method = "spearman"))
-comp %>%
-  ggplot(aes(x = norm_genome_remap, y = norm_reads_remap)) +
-  geom_point(size = 1) +
-  scale_x_log10() +
-  scale_y_log10() +
-  ggtitle(str_glue("Spearman rho = {signif(cor_remap2, 3)}"))
+comp |>
+    ggplot(aes(x = norm_genome_remap, y = norm_reads_remap)) +
+    geom_point(size = 1) +
+    scale_x_log10() +
+    scale_y_log10() +
+    ggtitle(str_glue("Spearman rho = {signif(cor_remap2, 3)}"))
 ```
 
-```{r fig.width=4.5, fig.height=1.5}
-p1 <- comp %>%
-  ggplot(aes(x = chr_rn6, y = chr_rn7, fill = bases_remapped)) +
-  geom_tile() +
-  scale_fill_viridis_c(trans = "log")
+```{r fig.width=10, fig.height=4}
+p1 <- comp |>
+    ggplot(aes(x = chr_rn6, y = chr_rn7, fill = bases_remapped)) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_viridis_c(trans = "log")
 
-p2 <- comp %>%
-  ggplot(aes(x = chr_rn6, y = chr_rn7, fill = median_n)) +
-  geom_tile() +
-  scale_fill_viridis_c(trans = "log")
+p2 <- comp |>
+    ggplot(aes(x = chr_rn6, y = chr_rn7, fill = median_n)) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_viridis_c(trans = "log")
 
 p1 + p2
 ```
 
-```{r fig.width=4.5, fig.height=1.5}
-p1 <- comp %>%
-  ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_genome_remap)) +
-  geom_tile() +
-  scale_fill_viridis_c(trans = "log")
+```{r fig.width=10, fig.height=4}
+p1 <- comp |>
+    ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_genome_remap)) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_viridis_c(trans = "log")
 
-p2 <- comp %>%
-  ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_reads_remap)) +
-  geom_tile() +
-  scale_fill_viridis_c(trans = "log")
+p2 <- comp |>
+    ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_reads_remap)) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_viridis_c(trans = "log")
 
 p1 + p2
 ```
@@ -142,24 +145,26 @@ Normalizing by product of exome lengths on both chromosomes, as done for RNA-Seq
 
 ```{r}
 cor_remap3 <- with(comp, cor(norm_exon_remap, norm_reads_remap, method = "spearman"))
-comp %>%
-  ggplot(aes(x = norm_exon_remap, y = norm_reads_remap)) +
-  geom_point(size = 1) +
-  scale_x_log10() +
-  scale_y_log10() +
-  ggtitle(str_glue("Spearman rho = {signif(cor_remap3, 3)}"))
+comp |>
+    ggplot(aes(x = norm_exon_remap, y = norm_reads_remap)) +
+    geom_point(size = 1) +
+    scale_x_log10() +
+    scale_y_log10() +
+    ggtitle(str_glue("Spearman rho = {signif(cor_remap3, 3)}"))
 ```
 
-```{r fig.width=4.5, fig.height=1.5}
-p1 <- comp %>%
-  ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_exon_remap)) +
-  geom_tile() +
-  scale_fill_viridis_c(trans = "log")
+```{r fig.width=10, fig.height=4}
+p1 <- comp |>
+    ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_exon_remap)) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_viridis_c(trans = "log")
 
-p2 <- comp %>%
-  ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_reads_remap)) +
-  geom_tile() +
-  scale_fill_viridis_c(trans = "log")
+p2 <- comp |>
+    ggplot(aes(x = chr_rn6, y = chr_rn7, fill = norm_reads_remap)) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_viridis_c(trans = "log")
 
 p1 + p2
 ```

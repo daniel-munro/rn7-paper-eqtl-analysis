@@ -9,7 +9,7 @@ Are there strong trans-eQTLs when using Rnor_6.0 that turn out to be cis-eQTLs w
 suppressPackageStartupMessages(library(tidyverse))
 library(patchwork)
 
-eqtls <- read_tsv("data/eqtl_moved.txt.gz", col_types = "ccdcll") %>%
+eqtls <- read_tsv("data/eqtl_moved.txt.gz", col_types = "ccdcll") |>
     mutate(moved = esnp_move | tss_move)
 
 reloc <- read_tsv("data/relocated.txt", col_types = "ccdcicicllcicic")
@@ -28,13 +28,6 @@ with(eqtls, table(esnp_move, tss_move, rn6_type))
 
 Interpretation: cis-eSNPs are ~100x less likely than trans-eSNPs to have been mislocated. trans-eGene TSS are as likely if not more likely than trans-eSNPs to be mislocated, but cis-eGene TSS are never mislocated.
 
-```{r}
-# seg |>
-#     ggplot(aes(x = alen)) +
-#     geom_histogram(bins = 50) +
-#     scale_x_log10()
-```
-
 To check this, see where mislocated eSNPs and TSS relocate, and which trans-eQTLs become cis-eQTLs, and vice versa.
 
 ```{r}
@@ -44,7 +37,8 @@ with(reloc, table(rn6_type, rn7_type))
 ```{r}
 eqtls |>
     left_join(select(reloc, gene_id, variant_id, rn7_type),
-              by = c("gene_id", "variant_id")) |>
+              by = c("gene_id", "variant_id"),
+              relationship = "one-to-one") |>
     mutate(rn7_type = if_else(moved, rn7_type, "unchanged"),
            rn7_type = fct_relevel(rn7_type, "unchanged")) |>
     with(table(rn6_type, rn7_type))
@@ -69,10 +63,10 @@ eqtls |>
 eqtls |>
     filter(rn6_type == "trans") |>
     left_join(select(reloc, variant_id, gene_id, rn7_type),
-              by = c("variant_id", "gene_id")) |>
+              by = c("variant_id", "gene_id"),
+              relationship = "one-to-one") |>
     mutate(log10pval = -log10(pval),
            eSNPs = case_when(
-               # moved & rn6_type == "cis" & rn7_type == "trans" ~ "cis->trans",
                moved & rn6_type == "trans" & rn7_type == "cis" ~ "trans->cis",
                moved & rn6_type == "trans" & rn7_type == "trans" ~ "trans->trans",
                !moved ~ "unchanged"
@@ -92,9 +86,9 @@ Top (by p-value) genes with trans->cis-eQTLs:
 reloc |>
     filter(rn6_type == "trans",
            rn7_type == "cis") |>
-    group_by(gene_id) |>
     summarise(lowest_pval = min(pval),
-              n_trans_to_cis = n()) |>
+              n_trans_to_cis = n(),
+              .by = gene_id) |>
     arrange(lowest_pval) |>
     mutate(gene_symbol = gene_symbols[gene_id], .after = gene_id)
 ```

@@ -17,7 +17,6 @@ def fastq_paths(wildcards):
 
 fastqs = pd.read_csv("../br/data/fastq/fastq_files_listing.fixed.txt", sep="\t")
 samples = list(pd.read_csv("samples.txt", sep="\t", names=["sample"])["sample"])
-# samples = samples[:16]
 
 localrules:
     chr_counts_all,
@@ -41,17 +40,15 @@ rule star_index:
         "data/star_index_{genome}/SAindex"
     params:
         outdir = "data/star_index_{genome}"
-    # threads: 8
-    resources:
-        cpus = 8
+    threads: 8
     shell:
         """
         STAR --runMode genomeGenerate \
-        --genomeDir {params.outdir} \
-        --genomeFastaFiles {input.fasta} \
-        --sjdbGTFfile {input.gtf} \
-        --sjdbOverhang 99 \
-        --runThreadN 8
+            --genomeDir {params.outdir} \
+            --genomeFastaFiles {input.fasta} \
+            --sjdbGTFfile {input.gtf} \
+            --sjdbOverhang 99 \
+            --runThreadN 8
         """
 
 
@@ -65,20 +62,19 @@ rule star_align:
         fastq_list = lambda wildcards, input: ",".join(input.fastq),
         index_dir = "data/star_index_{genome}",
         prefix = "data/star_out_{genome}/{sample_id}.",
-        # extra = expand("data/star_out_{{genome}}/{{sample_id}}{ext}", ext=[".SJ.out.tab", "._STAR*"])
     resources:
         mem_mb = 60000,
         cpus = 16
     shell:
         """
         STAR --runMode alignReads \
-        --runThreadN 16 \
-        --genomeDir {params.index_dir} \
-        --readFilesIn {params.fastq_list} \
-        --readFilesCommand zcat \
-        --outSAMtype BAM SortedByCoordinate \
-        --outSAMunmapped Within \
-        --outFileNamePrefix {params.prefix}
+            --runThreadN 16 \
+            --genomeDir {params.index_dir} \
+            --readFilesIn {params.fastq_list} \
+            --readFilesCommand zcat \
+            --outSAMtype BAM SortedByCoordinate \
+            --outSAMunmapped Within \
+            --outFileNamePrefix {params.prefix}
         """
 
 
@@ -90,16 +86,9 @@ rule read_chrs:
     shell:
         "samtools view {input} | cut -f1,3 | gzip -c > {output}"
 
-# samtools view star_out_rn6/00077E67B5_Acbc.Aligned.sortedByCoord.out.bam | cut -f1,3 | gzip -c > test.txt.gz
-
-# # To get chromosome list (optional):
-# tabix star_out_rn6/00077E67B5_Acbc.Aligned.sortedByCoord.out.bam
-# samtools idxstats star_out_rn6/00077E67B5_Acbc.Aligned.sortedByCoord.out.bam
-
 
 rule chr_counts_sample:
     input:
-        # expand("data/read_chrs_{genome}/{sample_id}.txt.gz", genome=["rn6", "rn7"], sample_id=samples)
         expand("data/read_chrs_{genome}/{{sample_id}}.txt.gz", genome=["rn6", "rn7"])
     output:
         "data/chr_counts/{sample_id}.txt"

@@ -8,7 +8,7 @@ output:
 
 We want to look specifically at how many RNA-Seq reads map to different chromosomes in rn6 vs mRatBN7.2, which would suggest potential improvements in eQTL results, etc, assuming the changes are mostly errors in the previous assembly that have been corrected.
 
-Here I have aligned HS Acbc (nucleus accumbens core) reads to the old and new genomes and recorded which chromosome each read aligns to in both. I'm looking only at reads uniquely mapped to a primary chromosome contig in both genomes.
+Here I have aligned HS NAcc (nucleus accumbens core) reads to the old and new genomes and recorded which chromosome each read aligns to in both. I'm looking only at reads uniquely mapped to a primary chromosome contig in both genomes.
 
 ```{r}
 suppressPackageStartupMessages(library(tidyverse))
@@ -17,66 +17,50 @@ columns <- c("Sequence-Name", "Sequence-Role", "Assigned-Molecule",
              "Assigned-Molecule-Location/Type", "GenBank-Accn", "Relationship",
              "RefSeq-Accn", "Assembly-Unit", "Sequence-Length", "UCSC-style-name")
 
-names_rn6 <- read_tsv("data/GCF_000001895.5_Rnor_6.0_assembly_report.txt",
-                      comment = "#", col_names = columns, col_types = "ccccccccic",
-                      na = "na") %>%
+names_rn6 <- read_tsv(
+    "../data/remapping/GCF_000001895.5_Rnor_6.0_assembly_report.txt",
+    comment = "#", col_names = columns, col_types = "ccccccccic", na = "na"
+) |>
     select(chr_rn6 = "Sequence-Name",
-           # assigned_rn6 = "Assigned-Molecule",
            chrom_rn6 = "RefSeq-Accn")
 
-names_rn7 <- read_tsv("data/GCF_015227675.2_mRatBN7.2_assembly_report.txt",
-                      comment = "#", col_names = columns, col_types = "ccccccccic",
-                      na = "na") %>%
+names_rn7 <- read_tsv(
+    "../data/remapping/GCF_015227675.2_mRatBN7.2_assembly_report.txt",
+    comment = "#", col_names = columns, col_types = "ccccccccic", na = "na"
+) |>
     select(chr_rn7 = "Sequence-Name",
-           # assigned_rn7 = "Assigned-Molecule",
            chrom_rn7 = "RefSeq-Accn")
 
 chrs <- c(1:20, "X", "Y", "MT")
 
-d <- read_tsv("data/chr_counts.txt", col_types = "ccci",
-                  col_names = c("sample", "chrom_rn6", "chrom_rn7", "n")) %>%
-    left_join(names_rn6, by = "chrom_rn6") %>%
-    left_join(names_rn7, by = "chrom_rn7") %>%
+d <- read_tsv("../data/remapping/chr_counts.txt", col_types = "ccci",
+              col_names = c("sample", "chrom_rn6", "chrom_rn7", "n")) |>
+    left_join(names_rn6, by = "chrom_rn6", relationship = "many-to-one") |>
+    left_join(names_rn7, by = "chrom_rn7", relationship = "many-to-one") |>
     mutate(chr_rn6 = str_replace(chr_rn6, "chr", ""),
            chr_rn6 = factor(chr_rn6, levels = chrs),
-           chr_rn7 = factor(chr_rn7, levels = chrs)) %>%
-    select(sample, chr_rn6, chr_rn7, n) %>%
-    group_by(sample) %>%
-    mutate(frac = n / sum(n)) %>%
-    ungroup() %>%
+           chr_rn7 = factor(chr_rn7, levels = chrs)) |>
+    select(sample, chr_rn6, chr_rn7, n) |>
+    mutate(frac = n / sum(n), .by = sample) |>
     complete(sample, chr_rn6, chr_rn7, fill = list(n = 0, frac = 0))
 
-d_median <- d %>%
-    # complete(sample, chr_rn6, chr_rn7, fill = list(n = 0, frac = 0)) %>%
-    group_by(chr_rn6, chr_rn7) %>%
-    # summarise(n = sum(n) / n_distinct(d$sample), .groups = "drop") %>%
+d_median <- d |>
     summarise(median_n = median(n),
               median_frac = median(frac),
-              .groups = "drop")
+              .by = c(chr_rn6, chr_rn7))
 
-write_tsv(d_median, "data/mapped_read_counts.txt")
-
-# d <- d_all %>%
-#     mutate(
-#         tmp = str_replace(chr_rn6, "chr", ""),
-#         chr_rn6 = if_else(!(tmp %in% chrs) | is.na(tmp), "Other", tmp),
-#         chr_rn7 = if_else(!(chr_rn7 %in% chrs) | is.na(chr_rn7),
-#                           "Other",
-#                           chr_rn7)
-#     ) %>%
-#     group_by(chr_rn6, chr_rn7) %>%
-#     summarise(n = sum(n), .groups = "drop")
+write_tsv(d_median, "../data/remapping/mapped_read_counts.txt")
 ```
 
 Counts for 16 random samples:
 
-```{r fig.width=4, fig.height=4}
-d %>%
-    filter(sample %in% unique(sample)[1:16]) %>%
+```{r fig.width=12, fig.height=12}
+d |>
+    filter(sample %in% unique(sample)[1:16]) |>
     ggplot(aes(x = chr_rn6, y = chr_rn7, fill = n)) +
     facet_wrap(~ sample) +
     geom_tile() +
-    # scale_fill_continuous(low = "white", high = "black") +
+    coord_fixed() +
     scale_fill_viridis_c(trans = "log",
                          breaks = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6),
                          labels = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6)) +
@@ -89,15 +73,15 @@ d %>%
 
 Same thing but ignoring the diagonal, i.e. reads that mapped to the same chromosome in rn6 and mRatBN7.2:
 
-```{r fig.width=4, fig.height=4}
+```{r fig.width=12, fig.height=12}
 # Without reads that didn't move:
-d %>%
+d |>
   filter(sample %in% unique(sample)[1:16],
-         chr_rn6 != chr_rn7) %>%
+         chr_rn6 != chr_rn7) |>
     ggplot(aes(x = chr_rn6, y = chr_rn7, fill = n)) +
     facet_wrap(~ sample) +
     geom_tile() +
-    # scale_fill_continuous(low = "white", high = "black") +
+    coord_fixed() +
     scale_fill_viridis_c(trans = "log",
                          breaks = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6),
                          labels = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6)) +
@@ -110,15 +94,12 @@ d %>%
 
 Expressing these as fractions of all reads in the matrix and getting median across samples:
 
-```{r fig.width=2.2, fig.height=2}
+```{r fig.width=5, fig.height=4}
 # Averaged:
-d_median %>%
+d_median |>
     ggplot(aes(x = chr_rn6, y = chr_rn7, fill = median_frac)) +
     geom_tile() +
-    # scale_fill_continuous(low = "white", high = "black") +
-    # scale_fill_viridis_c(trans = "log",
-    #                      breaks = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6),
-    #                      labels = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6)) +
+    coord_fixed() +
     scale_fill_viridis_c(trans = "log",
                          breaks = c(1e-8, 1e-6, 1e-4, 1e-2),
                          labels = c(1e-8, 1e-6, 1e-4, 1e-2)) +
@@ -131,15 +112,12 @@ d_median %>%
 
 As before, ignoring the diagonal (non-relocated reads):
 
-```{r fig.width=2.2, fig.height=2}
-d_median %>%
-    filter(chr_rn6 != chr_rn7) %>%
+```{r fig.width=5, fig.height=4}
+d_median |>
+    filter(chr_rn6 != chr_rn7) |>
     ggplot(aes(x = chr_rn6, y = chr_rn7, fill = median_frac)) +
     geom_tile() +
-    # scale_fill_continuous(low = "white", high = "black") +
-    # scale_fill_viridis_c(trans = "log",
-    #                      breaks = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6),
-    #                      labels = c(1, 10, 100, 1e3, 1e4, 1e5, 1e6)) +
+    coord_fixed() +
     scale_fill_viridis_c(trans = "log",
                          breaks = c(1e-8, 1e-6, 1e-4, 1e-2),
                          labels = c(1e-8, 1e-6, 1e-4, 1e-2)) +
@@ -150,72 +128,31 @@ d_median %>%
     ggtitle("Just relocated reads", subtitle = "(median across samples)")
 ```
 
-```{r}
-# Total reads per chromosome
-# d %>%
-#     group_by(chr_rn6) %>%
-#     summarise(n = sum(n)) %>%
-#     ggplot(aes(x = chr_rn6, y = n)) +
-#     geom_col() +
-#     theme(axis.text.x = element_text(hjust = 1, vjust = 0.5, angle = 90)) +
-#     xlab("Rnor 6.0 chromosome")
-# 
-# d %>%
-#     group_by(chr_rn7) %>%
-#     summarise(n = sum(n)) %>%
-#     ggplot(aes(x = chr_rn7, y = n)) +
-#     geom_col() +
-#     theme(axis.text.x = element_text(hjust = 1, vjust = 0.5, angle = 90)) +
-#     xlab("mRatBN7.2 chromosome")
-```
-
 The most common relocations as fractions of total mapped reads, i.e. largest elements of the above matrix:
 
 ```{r}
-d_median %>%
-    filter(chr_rn6 != chr_rn7) %>%
-    mutate(reloc = str_glue("{chr_rn6} → {chr_rn7}") %>%
-               fct_lump(n = 10, w = median_frac) %>%
-               fct_reorder(-median_frac)) %>%
-    group_by(reloc) %>%
-    summarise(median_frac = sum(median_frac), .groups = "drop") %>%
+d_median |>
+    filter(chr_rn6 != chr_rn7) |>
+    mutate(reloc = str_glue("{chr_rn6} → {chr_rn7}") |>
+               fct_lump(n = 10, w = median_frac) |>
+               fct_reorder(-median_frac)) |>
+    summarise(median_frac = sum(median_frac), .by = reloc) |>
     ggplot(aes(x = reloc, y = median_frac)) +
-    # geom_boxplot() +
     geom_col() +
-    # scale_y_log10() +
     xlab("Chromosome relocation (Rnor 6.0 → mRatBN7.2)") +
     ylab("Fraction of reads in library")
 ```
 
-```{r}
-# # Per-sample values are hard to see due to outliers:
-# d %>%
-#     filter(chr_rn6 != chr_rn7) %>%
-#     mutate(reloc = str_glue("{chr_rn6} → {chr_rn7}") %>%
-#                fct_lump(n = 10, w = frac) %>%
-#                fct_reorder(-frac)) %>%
-#     ggplot(aes(x = reloc, y = frac)) +
-#     geom_boxplot() +
-#     # geom_col() +
-#     # scale_y_log10() +
-#     xlab("Chromosome relocation (Rnor 6.0 → mRatBN7.2)") +
-#     ylab("Fraction of reads in library")
-```
-
 Here are the overall fractions of mapped reads per sample that relocated:
 
-```{r fig.width=2, fig.height=0.75}
-# # Fraction of reads remapped
-# with(d, sum(n[chr_rn6 != chr_rn7]) / sum(n))
+```{r fig.width=4, fig.height=1.5}
 # By sample
-d %>%
-    mutate(remapped = chr_rn6 != chr_rn7) %>%
-    group_by(sample) %>%
+d |>
+    mutate(remapped = chr_rn6 != chr_rn7) |>
     summarise(frac_remapped = sum(n[remapped]) / sum(n),
-              .groups = "drop") %>%
+              .by = sample) |>
     ggplot(aes(x = 1, y = frac_remapped)) +
     geom_boxplot(outlier.shape = NA) +
-    # ggbeeswarm::geom_beeswarm(cex = 3, size = 0.5, color = "blue") +
     geom_jitter(size = 0.5, color = "blue") +
     coord_flip() +
     expand_limits(y = 0) +
